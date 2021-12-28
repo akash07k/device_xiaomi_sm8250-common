@@ -19,8 +19,4 @@ android_app {
         "SettingsLib",
         "//hardware/xiaomi:vendor.xiaomi.hardware.motor-V1.0-java",
     ],
-
-    optimize: {
-        proguard_flags_files: ["proguard.flags"],
-    },
 }
