@@ -843,7 +843,7 @@ service esepmdaemon /system/vendor/bin/esepmdaemon
 on charger
     start qcom-post-boot
     wait /dev/block/bootdevice/by-name/system
-    mount erofs /dev/block/bootdevice/by-name/system / ro barrier=1
+    mount ext4 /dev/block/bootdevice/by-name/system / ro barrier=1
     setprop sys.usb.config adb
 
 #add poweroffhandler
