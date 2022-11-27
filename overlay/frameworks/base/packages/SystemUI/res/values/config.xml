@@ -29,4 +29,5 @@
 
     <!-- FPSInfoService FPS node file path -->
     <string name="config_fpsInfoSysNode" translatable="false">/sys/class/drm/sde-crtc-0/measured_fps</string>
+<bool name="config_showRefreshRateQsTile">true</bool>
 </resources>
