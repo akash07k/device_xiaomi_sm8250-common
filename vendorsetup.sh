@@ -22,20 +22,20 @@ fi
 
 # Apply and commit patch
 git -C $patch_dir apply --verbose < <(cat <<'EOL'
-From b6bf8df1662145446794bd168654792db08aea8a Mon Sep 17 00:00:00 2001
+From 6c9f57bd25b0c2fa34acb141513d995907c2ef0c Mon Sep 17 00:00:00 2001
 From: spkal01 <kalligeross@gmail.com>
 Date: Mon, 24 Oct 2022 15:13:59 +0300
 Subject: [PATCH] [SQUASH] Multiple reverts for miuicamera
 
 Signed-off-by: Akash Kakkar <akash.galaxy07@gmail.com>
 ---
- core/java/android/hardware/Camera.java        | 48 +------------------
- .../hardware/camera2/CameraManager.java       | 30 +-----------
+ core/java/android/hardware/Camera.java        | 50 +------------------
+ .../hardware/camera2/CameraManager.java       | 30 +----------
  core/jni/android_hardware_Camera.cpp          |  2 +-
- 3 files changed, 4 insertions(+), 76 deletions(-)
+ 3 files changed, 4 insertions(+), 78 deletions(-)
 
 diff --git a/core/java/android/hardware/Camera.java b/core/java/android/hardware/Camera.java
-index efc92d3992df..f04479deeef3 100644
+index 2595aeb313df..f04479deeef3 100644
 --- a/core/java/android/hardware/Camera.java
 +++ b/core/java/android/hardware/Camera.java
 @@ -46,7 +46,6 @@ import android.os.Message;
@@ -54,7 +54,7 @@ index efc92d3992df..f04479deeef3 100644
  import java.util.LinkedHashMap;
  import java.util.List;
  
-@@ -282,31 +280,6 @@ public class Camera {
+@@ -282,33 +280,6 @@ public class Camera {
       */
      private static final int CAMERA_FACE_DETECTION_SW = 1;
  
@@ -67,6 +67,8 @@ index efc92d3992df..f04479deeef3 100644
 -         * if the package name does not falls in this bucket
 -         */
 -        String packageName = ActivityThread.currentOpPackageName();
+-    	if (packageName == null)
+-    	    return true;
 -        List<String> packageList = new ArrayList<>(Arrays.asList(
 -                SystemProperties.get("vendor.camera.aux.packagelist", ",").split(",")));
 -        List<String> packageExcludelist = new ArrayList<>(Arrays.asList(
@@ -86,7 +88,7 @@ index efc92d3992df..f04479deeef3 100644
      /**
       * Returns the number of physical cameras available on this device.
       * The return value of this method might change dynamically if the device
-@@ -322,20 +295,7 @@ public class Camera {
+@@ -324,20 +295,7 @@ public class Camera {
       * @return total number of accessible camera devices, or 0 if there are no
       *   cameras or an error was encountered enumerating them.
       */
@@ -108,7 +110,7 @@ index efc92d3992df..f04479deeef3 100644
  
      /**
       * Returns the information about a particular camera.
-@@ -346,9 +306,6 @@ public class Camera {
+@@ -348,9 +306,6 @@ public class Camera {
       *    low-level failure).
       */
      public static void getCameraInfo(int cameraId, CameraInfo cameraInfo) {
@@ -118,7 +120,7 @@ index efc92d3992df..f04479deeef3 100644
          _getCameraInfo(cameraId, cameraInfo);
          IBinder b = ServiceManager.getService(Context.AUDIO_SERVICE);
          IAudioService audioService = IAudioService.Stub.asInterface(b);
-@@ -564,9 +521,6 @@ public class Camera {
+@@ -566,9 +521,6 @@ public class Camera {
  
      /** used by Camera#open, Camera#open(int) */
      Camera(int cameraId) {
@@ -129,7 +131,7 @@ index efc92d3992df..f04479deeef3 100644
          if (checkInitErrors(err)) {
              if (err == -EACCES) {
 diff --git a/core/java/android/hardware/camera2/CameraManager.java b/core/java/android/hardware/camera2/CameraManager.java
-index 18b8e367ddc7..400356810088 100644
+index 9458960d13de..f8170731b2e5 100644
 --- a/core/java/android/hardware/camera2/CameraManager.java
 +++ b/core/java/android/hardware/camera2/CameraManager.java
 @@ -27,7 +27,6 @@ import android.app.ActivityThread;
@@ -140,7 +142,7 @@ index 18b8e367ddc7..400356810088 100644
  import android.hardware.CameraStatus;
  import android.hardware.ICameraService;
  import android.hardware.ICameraServiceListener;
-@@ -1651,10 +1650,8 @@ public final class CameraManager {
+@@ -1678,10 +1677,8 @@ public final class CameraManager {
  
          private String[] extractCameraIdListLocked() {
              String[] cameraIds = null;
@@ -152,7 +154,7 @@ index 18b8e367ddc7..400356810088 100644
                  int status = mDeviceStatus.valueAt(i);
                  if (status == ICameraServiceListener.STATUS_NOT_PRESENT
                          || status == ICameraServiceListener.STATUS_ENUMERATING) continue;
-@@ -1662,7 +1659,7 @@ public final class CameraManager {
+@@ -1689,7 +1686,7 @@ public final class CameraManager {
              }
              cameraIds = new String[idCount];
              idCount = 0;
@@ -161,7 +163,7 @@ index 18b8e367ddc7..400356810088 100644
                  int status = mDeviceStatus.valueAt(i);
                  if (status == ICameraServiceListener.STATUS_NOT_PRESENT
                          || status == ICameraServiceListener.STATUS_ENUMERATING) continue;
-@@ -1927,14 +1924,6 @@ public final class CameraManager {
+@@ -1954,14 +1951,6 @@ public final class CameraManager {
                      throw new IllegalArgumentException("cameraId was null");
                  }
  
@@ -176,7 +178,7 @@ index 18b8e367ddc7..400356810088 100644
                  ICameraService cameraService = getCameraService();
                  if (cameraService == null) {
                      throw new CameraAccessException(CameraAccessException.CAMERA_DISCONNECTED,
-@@ -2202,11 +2191,6 @@ public final class CameraManager {
+@@ -2229,11 +2218,6 @@ public final class CameraManager {
          }
  
          private void onStatusChangedLocked(int status, String id) {
@@ -188,7 +190,7 @@ index 18b8e367ddc7..400356810088 100644
              if (DEBUG) {
                  Log.v(TAG,
                          String.format("Camera id %s has status changed to 0x%x", id, status));
-@@ -2338,16 +2322,6 @@ public final class CameraManager {
+@@ -2365,16 +2349,6 @@ public final class CameraManager {
                          String.format("Camera id %s has torch status changed to 0x%x", id, status));
              }
  
