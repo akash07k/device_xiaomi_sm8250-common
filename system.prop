@@ -73,6 +73,7 @@ media.settings.xml=/vendor/etc/media_profiles_vendor.xml
 
 # Netflix
 ro.netflix.bsp_rev=Q8250-19134-1
+persist.pixelpropsutils.spoof_netflix=true
 
 # Perf
 ro.vendor.qti.core_ctl_max_cpu=4
