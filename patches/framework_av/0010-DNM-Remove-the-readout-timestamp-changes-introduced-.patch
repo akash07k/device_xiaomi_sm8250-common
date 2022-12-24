@@ -1,0 +1,716 @@
+From 1494a395279c3adfbb987b2905bfe90dec81d431 Mon Sep 17 00:00:00 2001
+From: vjspranav <pranavasri@live.in>
+Date: Sat, 22 Oct 2022 21:59:45 +0000
+Subject: [PATCH 10/10] [DNM] Remove the readout timestamp changes introduced
+ in r11 * Also remove the other dependent changes
+
+Revert "Camera: reset presentation timestamp more aggressively"
+
+This reverts commit ed08fbe1381f2de16c6ef4247436610443c5a2ed.
+
+Revert "Camera: Handle deviation between frame duration and vsync intervals"
+
+This reverts commit 34a5e28cbcf0d9ba486d84ca00580976baa97b75.
+
+Revert "cameraserver: Exit watchdog for disconnect call"
+
+This reverts commit c83d7c4a24e98f714d9f2f8b68e1292356e17fec.
+
+Revert "cameraservice: Check for watchdog initialization before timing disconnect."
+
+This reverts commit 3f20d19b2940098995e20d682d78d78470f07558.
+
+Revert "Camera: Initialize input stream dynamic range profile"
+
+This reverts commit 065fb0f576532edc127abe67dd917783fae84395.
+
+Revert "Camera: Exit PreviewStreamSpacer when disconnecting stream"
+
+This reverts commit dc9aa82c33f10ccde2955e60df721372264b5b5a.
+
+Revert "Camera: Narrow down cases preview spacer is used"
+
+This reverts commit fe8a2a32c2154de30f53bae37783b67d84ec1f9a.
+
+Revert "Camera: Add support for readout timestamp"
+
+This reverts commit ffc4c0164df8a13f365e980d2ebcc4777f44256b.
+
+Signed-off-by: Akash Kakkar <akash.galaxy07@gmail.com>
+---
+ camera/CaptureResult.cpp                      |  9 +---
+ camera/include/camera/CaptureResult.h         | 15 +-----
+ .../camera/camera2/OutputConfiguration.h      |  4 +-
+ .../common/Camera2ClientBase.cpp              | 13 +----
+ .../common/CameraProviderManager.cpp          | 21 --------
+ .../common/CameraProviderManager.h            |  1 -
+ .../common/aidl/AidlProviderInfo.cpp          |  5 --
+ .../common/hidl/HidlProviderInfo.cpp          |  5 --
+ .../device3/Camera3IOStreamBase.cpp           |  3 +-
+ .../device3/Camera3OutputStream.cpp           | 48 ++++--------------
+ .../device3/Camera3OutputStream.h             | 10 ----
+ .../device3/Camera3OutputUtils.cpp            |  9 +---
+ .../device3/InFlightRequest.h                 |  3 +-
+ .../device3/PreviewFrameSpacer.cpp            | 49 ++++++++-----------
+ .../device3/PreviewFrameSpacer.h              | 21 ++++----
+ .../device3/aidl/AidlCamera3OutputUtils.cpp   |  1 -
+ .../device3/hidl/HidlCamera3OutputUtils.cpp   |  1 -
+ .../utils/SessionConfigurationUtils.cpp       |  6 +--
+ .../utils/SessionConfigurationUtilsHidl.cpp   |  2 +-
+ 19 files changed, 52 insertions(+), 174 deletions(-)
+
+diff --git a/camera/CaptureResult.cpp b/camera/CaptureResult.cpp
+index bb880d1229..be478981a3 100644
+--- a/camera/CaptureResult.cpp
++++ b/camera/CaptureResult.cpp
+@@ -52,10 +52,7 @@ status_t CaptureResultExtras::readFromParcel(const android::Parcel *parcel) {
+     parcel->readInt64(&lastCompletedRegularFrameNumber);
+     parcel->readInt64(&lastCompletedReprocessFrameNumber);
+     parcel->readInt64(&lastCompletedZslFrameNumber);
+-    parcel->readBool(&hasReadoutTimestamp);
+-    if (hasReadoutTimestamp) {
+-        parcel->readInt64(&readoutTimestamp);
+-    }
++
+     return OK;
+ }
+ 
+@@ -85,10 +82,6 @@ status_t CaptureResultExtras::writeToParcel(android::Parcel *parcel) const {
+     parcel->writeInt64(lastCompletedRegularFrameNumber);
+     parcel->writeInt64(lastCompletedReprocessFrameNumber);
+     parcel->writeInt64(lastCompletedZslFrameNumber);
+-    parcel->writeBool(hasReadoutTimestamp);
+-    if (hasReadoutTimestamp) {
+-        parcel->writeInt64(readoutTimestamp);
+-    }
+ 
+     return OK;
+ }
+diff --git a/camera/include/camera/CaptureResult.h b/camera/include/camera/CaptureResult.h
+index de534ab0bc..f163c1ec00 100644
+--- a/camera/include/camera/CaptureResult.h
++++ b/camera/include/camera/CaptureResult.h
+@@ -103,17 +103,6 @@ struct CaptureResultExtras : public android::Parcelable {
+      */
+     int64_t lastCompletedZslFrameNumber;
+ 
+-    /**
+-     * Whether the readoutTimestamp variable is valid and should be used.
+-     */
+-    bool hasReadoutTimestamp;
+-
+-    /**
+-     * The readout timestamp of the capture. Its value is equal to the
+-     * start-of-exposure timestamp plus the exposure time (and a possible fixed
+-     * offset due to sensor crop).
+-     */
+-    int64_t readoutTimestamp;
+ 
+     /**
+      * Constructor initializes object as invalid by setting requestId to be -1.
+@@ -129,9 +118,7 @@ struct CaptureResultExtras : public android::Parcelable {
+           errorPhysicalCameraId(),
+           lastCompletedRegularFrameNumber(-1),
+           lastCompletedReprocessFrameNumber(-1),
+-          lastCompletedZslFrameNumber(-1),
+-          hasReadoutTimestamp(false),
+-          readoutTimestamp(0) {
++          lastCompletedZslFrameNumber(-1) {
+     }
+ 
+     /**
+diff --git a/camera/include/camera/camera2/OutputConfiguration.h b/camera/include/camera/camera2/OutputConfiguration.h
+index b7c7f7f115..b842885a6b 100644
+--- a/camera/include/camera/camera2/OutputConfiguration.h
++++ b/camera/include/camera/camera2/OutputConfiguration.h
+@@ -43,9 +43,7 @@ public:
+         TIMESTAMP_BASE_SENSOR = 1,
+         TIMESTAMP_BASE_MONOTONIC = 2,
+         TIMESTAMP_BASE_REALTIME = 3,
+-        TIMESTAMP_BASE_CHOREOGRAPHER_SYNCED = 4,
+-        TIMESTAMP_BASE_READOUT_SENSOR = 5,
+-        TIMESTAMP_BASE_MAX = TIMESTAMP_BASE_READOUT_SENSOR,
++        TIMESTAMP_BASE_CHOREOGRAPHER_SYNCED = 4
+     };
+     enum MirrorModeType {
+         MIRROR_MODE_AUTO = 0,
+diff --git a/services/camera/libcameraservice/common/Camera2ClientBase.cpp b/services/camera/libcameraservice/common/Camera2ClientBase.cpp
+index 9a5e9a94d2..86c99fd634 100644
+--- a/services/camera/libcameraservice/common/Camera2ClientBase.cpp
++++ b/services/camera/libcameraservice/common/Camera2ClientBase.cpp
+@@ -162,11 +162,6 @@ Camera2ClientBase<TClientBase>::~Camera2ClientBase() {
+ 
+     disconnect();
+ 
+-    if (mCameraServiceWatchdog != NULL) {
+-        mCameraServiceWatchdog->requestExit();
+-        mCameraServiceWatchdog.clear();
+-    }
+-
+     ALOGI("Closed Camera %s. Client was: %s (PID %d, UID %u)",
+             TClientBase::mCameraIdStr.string(),
+             String8(TClientBase::mClientPackageName).string(),
+@@ -252,12 +247,8 @@ status_t Camera2ClientBase<TClientBase>::dumpDevice(
+ 
+ template <typename TClientBase>
+ binder::Status Camera2ClientBase<TClientBase>::disconnect() {
+-    if (mCameraServiceWatchdog != nullptr) {
+-        // Initialization from hal succeeded, time disconnect.
+-        return mCameraServiceWatchdog->WATCH_CUSTOM_TIMER(disconnectImpl(),
+-                kDisconnectTimeoutMs / kCycleLengthMs, kCycleLengthMs);
+-    }
+-    return disconnectImpl();
++    return mCameraServiceWatchdog->WATCH_CUSTOM_TIMER(disconnectImpl(),
++            kDisconnectTimeoutMs / kCycleLengthMs, kCycleLengthMs);
+ }
+ 
+ template <typename TClientBase>
+diff --git a/services/camera/libcameraservice/common/CameraProviderManager.cpp b/services/camera/libcameraservice/common/CameraProviderManager.cpp
+index cd23250d2d..e36f761534 100644
+--- a/services/camera/libcameraservice/common/CameraProviderManager.cpp
++++ b/services/camera/libcameraservice/common/CameraProviderManager.cpp
+@@ -1412,27 +1412,6 @@ status_t CameraProviderManager::ProviderInfo::DeviceInfo3::addPreCorrectionActiv
+     return res;
+ }
+ 
+-status_t CameraProviderManager::ProviderInfo::DeviceInfo3::addReadoutTimestampTag(
+-        bool readoutTimestampSupported) {
+-    status_t res = OK;
+-    auto& c = mCameraCharacteristics;
+-
+-    auto entry = c.find(ANDROID_SENSOR_READOUT_TIMESTAMP);
+-    if (entry.count != 0) {
+-        ALOGE("%s: CameraCharacteristics must not contain ANDROID_SENSOR_READOUT_TIMESTAMP!",
+-                __FUNCTION__);
+-    }
+-
+-    uint8_t readoutTimestamp = ANDROID_SENSOR_READOUT_TIMESTAMP_NOT_SUPPORTED;
+-    if (readoutTimestampSupported) {
+-        readoutTimestamp = ANDROID_SENSOR_READOUT_TIMESTAMP_HARDWARE;
+-    }
+-
+-    res = c.update(ANDROID_SENSOR_READOUT_TIMESTAMP, &readoutTimestamp, 1);
+-
+-    return res;
+-}
+-
+ status_t CameraProviderManager::ProviderInfo::DeviceInfo3::removeAvailableKeys(
+         CameraMetadata& c, const std::vector<uint32_t>& keys, uint32_t keyTag) {
+     status_t res = OK;
+diff --git a/services/camera/libcameraservice/common/CameraProviderManager.h b/services/camera/libcameraservice/common/CameraProviderManager.h
+index d049affdad..a66598d9b2 100644
+--- a/services/camera/libcameraservice/common/CameraProviderManager.h
++++ b/services/camera/libcameraservice/common/CameraProviderManager.h
+@@ -663,7 +663,6 @@ private:
+             status_t deriveHeicTags(bool maxResolution = false);
+             status_t addRotateCropTags();
+             status_t addPreCorrectionActiveArraySize();
+-            status_t addReadoutTimestampTag(bool readoutTimestampSupported = true);
+ 
+             static void getSupportedSizes(const CameraMetadata& ch, uint32_t tag,
+                     android_pixel_format_t format,
+diff --git a/services/camera/libcameraservice/common/aidl/AidlProviderInfo.cpp b/services/camera/libcameraservice/common/aidl/AidlProviderInfo.cpp
+index ef68f281b7..81b4779eb6 100644
+--- a/services/camera/libcameraservice/common/aidl/AidlProviderInfo.cpp
++++ b/services/camera/libcameraservice/common/aidl/AidlProviderInfo.cpp
+@@ -532,11 +532,6 @@ AidlProviderInfo::AidlDeviceInfo3::AidlDeviceInfo3(
+         ALOGE("%s: Unable to override zoomRatio related tags: %s (%d)",
+                 __FUNCTION__, strerror(-res), res);
+     }
+-    res = addReadoutTimestampTag();
+-    if (OK != res) {
+-        ALOGE("%s: Unable to add sensorReadoutTimestamp tag: %s (%d)",
+-                __FUNCTION__, strerror(-res), res);
+-    }
+ 
+     camera_metadata_entry flashAvailable =
+             mCameraCharacteristics.find(ANDROID_FLASH_INFO_AVAILABLE);
+diff --git a/services/camera/libcameraservice/common/hidl/HidlProviderInfo.cpp b/services/camera/libcameraservice/common/hidl/HidlProviderInfo.cpp
+index d60565fb68..bded9aafec 100644
+--- a/services/camera/libcameraservice/common/hidl/HidlProviderInfo.cpp
++++ b/services/camera/libcameraservice/common/hidl/HidlProviderInfo.cpp
+@@ -655,11 +655,6 @@ HidlProviderInfo::HidlDeviceInfo3::HidlDeviceInfo3(
+         ALOGE("%s: Unable to override zoomRatio related tags: %s (%d)",
+                 __FUNCTION__, strerror(-res), res);
+     }
+-    res = addReadoutTimestampTag(/*readoutTimestampSupported*/false);
+-    if (OK != res) {
+-        ALOGE("%s: Unable to add sensorReadoutTimestamp tag: %s (%d)",
+-                __FUNCTION__, strerror(-res), res);
+-    }
+ 
+     camera_metadata_entry flashAvailable =
+             mCameraCharacteristics.find(ANDROID_FLASH_INFO_AVAILABLE);
+diff --git a/services/camera/libcameraservice/device3/Camera3IOStreamBase.cpp b/services/camera/libcameraservice/device3/Camera3IOStreamBase.cpp
+index add1483bf8..b5d0746a71 100644
+--- a/services/camera/libcameraservice/device3/Camera3IOStreamBase.cpp
++++ b/services/camera/libcameraservice/device3/Camera3IOStreamBase.cpp
+@@ -89,10 +89,9 @@ void Camera3IOStreamBase::dump(int fd, const Vector<String16> &args) const {
+     if (strlen(camera_stream::physical_camera_id) > 0) {
+         lines.appendFormat("      Physical camera id: %s\n", camera_stream::physical_camera_id);
+     }
+-    lines.appendFormat("      Dynamic Range Profile: 0x%" PRIx64 "\n",
++    lines.appendFormat("      Dynamic Range Profile: 0x%" PRIx64,
+             camera_stream::dynamic_range_profile);
+     lines.appendFormat("      Stream use case: %" PRId64 "\n", camera_stream::use_case);
+-    lines.appendFormat("      Timestamp base: %d\n", getTimestampBase());
+     lines.appendFormat("      Frames produced: %d, last timestamp: %" PRId64 " ns\n",
+             mFrameCount, mLastTimestamp);
+     lines.appendFormat("      Total buffers: %zu, currently dequeued: %zu\n",
+diff --git a/services/camera/libcameraservice/device3/Camera3OutputStream.cpp b/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
+index 6d99707cd8..7d55edcee2 100644
+--- a/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
++++ b/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
+@@ -66,7 +66,6 @@ Camera3OutputStream::Camera3OutputStream(int id,
+         mTraceFirstBuffer(true),
+         mUseBufferManager(false),
+         mTimestampOffset(timestampOffset),
+-        mUseReadoutTime(false),
+         mConsumerUsage(0),
+         mDropBuffers(false),
+         mMirrorMode(mirrorMode),
+@@ -100,7 +99,6 @@ Camera3OutputStream::Camera3OutputStream(int id,
+         mTraceFirstBuffer(true),
+         mUseBufferManager(false),
+         mTimestampOffset(timestampOffset),
+-        mUseReadoutTime(false),
+         mConsumerUsage(0),
+         mDropBuffers(false),
+         mMirrorMode(mirrorMode),
+@@ -141,7 +139,6 @@ Camera3OutputStream::Camera3OutputStream(int id,
+         mTraceFirstBuffer(true),
+         mUseBufferManager(false),
+         mTimestampOffset(timestampOffset),
+-        mUseReadoutTime(false),
+         mConsumerUsage(consumerUsage),
+         mDropBuffers(false),
+         mMirrorMode(mirrorMode),
+@@ -190,7 +187,6 @@ Camera3OutputStream::Camera3OutputStream(int id, camera_stream_type_t type,
+         mTraceFirstBuffer(true),
+         mUseBufferManager(false),
+         mTimestampOffset(timestampOffset),
+-        mUseReadoutTime(false),
+         mConsumerUsage(consumerUsage),
+         mDropBuffers(false),
+         mMirrorMode(mirrorMode),
+@@ -465,19 +461,17 @@ status_t Camera3OutputStream::returnBufferCheckedLocked(
+             }
+         }
+ 
+-        nsecs_t captureTime = (mUseReadoutTime && readoutTimestamp != 0 ?
+-                readoutTimestamp : timestamp) - mTimestampOffset;
+         if (mPreviewFrameSpacer != nullptr) {
+-            nsecs_t readoutTime = (readoutTimestamp != 0 ? readoutTimestamp : timestamp)
+-                    - mTimestampOffset;
+-            res = mPreviewFrameSpacer->queuePreviewBuffer(captureTime, readoutTime,
+-                    transform, anwBuffer, anwReleaseFence);
++            res = mPreviewFrameSpacer->queuePreviewBuffer(timestamp - mTimestampOffset, transform,
++                    anwBuffer, anwReleaseFence);
+             if (res != OK) {
+                 ALOGE("%s: Stream %d: Error queuing buffer to preview buffer spacer: %s (%d)",
+                         __FUNCTION__, mId, strerror(-res), res);
+                 return res;
+             }
+         } else {
++            nsecs_t captureTime = (mSyncToDisplay ? readoutTimestamp : timestamp)
++                    - mTimestampOffset;
+             nsecs_t presentTime = mSyncToDisplay ?
+                     syncTimestampToDisplayLocked(captureTime) : captureTime;
+ 
+@@ -684,16 +678,13 @@ status_t Camera3OutputStream::configureConsumerQueueLocked(bool allowPreviewResp
+         bool forceChoreographer = (timestampBase ==
+                 OutputConfiguration::TIMESTAMP_BASE_CHOREOGRAPHER_SYNCED);
+         bool defaultToChoreographer = (isDefaultTimeBase &&
+-                isConsumedByHWComposer());
+-        bool defaultToSpacer = (isDefaultTimeBase &&
+-                isConsumedByHWTexture() &&
+-                !isConsumedByCPU() &&
+-                !isVideoStream());
++                isConsumedByHWComposer() &&
++                !property_get_bool("camera.disable_preview_scheduler", false));
+         if (forceChoreographer || defaultToChoreographer) {
+             mSyncToDisplay = true;
+             mTotalBufferCount += kDisplaySyncExtraBuffer;
+-        } else if (defaultToSpacer) {
+-            mPreviewFrameSpacer = new PreviewFrameSpacer(this, mConsumer);
++        } else if (isConsumedByHWTexture() && !isVideoStream()) {
++            mPreviewFrameSpacer = new PreviewFrameSpacer(*this, mConsumer);
+             mTotalBufferCount ++;
+             res = mPreviewFrameSpacer->run(String8::format("PreviewSpacer-%d", mId).string());
+             if (res != OK) {
+@@ -706,16 +697,12 @@ status_t Camera3OutputStream::configureConsumerQueueLocked(bool allowPreviewResp
+     mFrameCount = 0;
+     mLastTimestamp = 0;
+ 
+-    mUseReadoutTime =
+-            (timestampBase == OutputConfiguration::TIMESTAMP_BASE_READOUT_SENSOR || mSyncToDisplay);
+-
+     if (isDeviceTimeBaseRealtime()) {
+         if (isDefaultTimeBase && !isConsumedByHWComposer() && !isVideoStream()) {
+             // Default time base, but not hardware composer or video encoder
+             mTimestampOffset = 0;
+         } else if (timestampBase == OutputConfiguration::TIMESTAMP_BASE_REALTIME ||
+-                timestampBase == OutputConfiguration::TIMESTAMP_BASE_SENSOR ||
+-                timestampBase == OutputConfiguration::TIMESTAMP_BASE_READOUT_SENSOR) {
++                timestampBase == OutputConfiguration::TIMESTAMP_BASE_SENSOR) {
+             mTimestampOffset = 0;
+         }
+         // If timestampBase is CHOREOGRAPHER SYNCED or MONOTONIC, leave
+@@ -725,7 +712,7 @@ status_t Camera3OutputStream::configureConsumerQueueLocked(bool allowPreviewResp
+             // Reverse offset for monotonicTime -> bootTime
+             mTimestampOffset = -mTimestampOffset;
+         } else {
+-            // If timestampBase is DEFAULT, MONOTONIC, SENSOR, READOUT_SENSOR or
++            // If timestampBase is DEFAULT, MONOTONIC, SENSOR, or
+             // CHOREOGRAPHER_SYNCED, timestamp offset is 0.
+             mTimestampOffset = 0;
+         }
+@@ -978,10 +965,6 @@ status_t Camera3OutputStream::disconnectLocked() {
+ 
+     returnPrefetchedBuffersLocked();
+ 
+-    if (mPreviewFrameSpacer != nullptr) {
+-        mPreviewFrameSpacer->requestExit();
+-    }
+-
+     ALOGV("%s: disconnecting stream %d from native window", __FUNCTION__, getId());
+ 
+     res = native_window_api_disconnect(mConsumer.get(),
+@@ -1275,17 +1258,6 @@ bool Camera3OutputStream::isConsumedByHWTexture() const {
+     return (usage & GRALLOC_USAGE_HW_TEXTURE) != 0;
+ }
+ 
+-bool Camera3OutputStream::isConsumedByCPU() const {
+-    uint64_t usage = 0;
+-    status_t res = getEndpointUsage(&usage);
+-    if (res != OK) {
+-        ALOGE("%s: getting end point usage failed: %s (%d).", __FUNCTION__, strerror(-res), res);
+-        return false;
+-    }
+-
+-    return (usage & GRALLOC_USAGE_SW_READ_MASK) != 0;
+-}
+-
+ void Camera3OutputStream::dumpImageToDisk(nsecs_t timestamp,
+         ANativeWindowBuffer* anwBuffer, int fence) {
+     // Deriver output file name
+diff --git a/services/camera/libcameraservice/device3/Camera3OutputStream.h b/services/camera/libcameraservice/device3/Camera3OutputStream.h
+index 4ab052b52d..45e995d995 100644
+--- a/services/camera/libcameraservice/device3/Camera3OutputStream.h
++++ b/services/camera/libcameraservice/device3/Camera3OutputStream.h
+@@ -159,11 +159,6 @@ class Camera3OutputStream :
+      */
+     bool isConsumedByHWTexture() const;
+ 
+-    /**
+-     * Return if this output stream is consumed by CPU.
+-     */
+-    bool isConsumedByCPU() const;
+-
+     /**
+      * Return if the consumer configuration of this stream is deferred.
+      */
+@@ -340,11 +335,6 @@ class Camera3OutputStream :
+      */
+     nsecs_t mTimestampOffset;
+ 
+-    /**
+-     * If camera readout time is used rather than the start-of-exposure time.
+-     */
+-    bool mUseReadoutTime;
+-
+     /**
+      * Consumer end point usage flag set by the constructor for the deferred
+      * consumer case.
+diff --git a/services/camera/libcameraservice/device3/Camera3OutputUtils.cpp b/services/camera/libcameraservice/device3/Camera3OutputUtils.cpp
+index f4e3fad468..ed66df0eb1 100644
+--- a/services/camera/libcameraservice/device3/Camera3OutputUtils.cpp
++++ b/services/camera/libcameraservice/device3/Camera3OutputUtils.cpp
+@@ -787,12 +787,10 @@ void returnAndRemovePendingOutputBuffers(bool useHalBufManager,
+         SessionStatsBuilder& sessionStatsBuilder) {
+     bool timestampIncreasing =
+             !((request.zslCapture && request.stillCapture) || request.hasInputBuffer);
+-    nsecs_t readoutTimestamp = request.resultExtras.hasReadoutTimestamp ?
+-            request.resultExtras.readoutTimestamp : 0;
+     returnOutputBuffers(useHalBufManager, listener,
+             request.pendingOutputBuffers.array(),
+             request.pendingOutputBuffers.size(),
+-            request.shutterTimestamp, readoutTimestamp,
++            request.shutterTimestamp, request.shutterReadoutTimestamp,
+             /*requested*/true, request.requestTimeNs, sessionStatsBuilder, timestampIncreasing,
+             request.outputSurfaces, request.resultExtras,
+             request.errorBufStrategy, request.transform);
+@@ -854,10 +852,7 @@ void notifyShutter(CaptureOutputStates& states, const camera_shutter_msg_t &msg)
+             }
+ 
+             r.shutterTimestamp = msg.timestamp;
+-            if (msg.readout_timestamp_valid) {
+-                r.resultExtras.hasReadoutTimestamp = true;
+-                r.resultExtras.readoutTimestamp = msg.readout_timestamp;
+-            }
++            r.shutterReadoutTimestamp = msg.readout_timestamp;
+             if (r.minExpectedDuration != states.minFrameDuration) {
+                 for (size_t i = 0; i < states.outputStreams.size(); i++) {
+                     auto outputStream = states.outputStreams[i];
+diff --git a/services/camera/libcameraservice/device3/InFlightRequest.h b/services/camera/libcameraservice/device3/InFlightRequest.h
+index fa0049510f..493a9e2fb6 100644
+--- a/services/camera/libcameraservice/device3/InFlightRequest.h
++++ b/services/camera/libcameraservice/device3/InFlightRequest.h
+@@ -65,7 +65,6 @@ typedef struct camera_capture_result {
+ typedef struct camera_shutter_msg {
+     uint32_t frame_number;
+     uint64_t timestamp;
+-    bool readout_timestamp_valid;
+     uint64_t readout_timestamp;
+ } camera_shutter_msg_t;
+ 
+@@ -105,6 +104,8 @@ typedef enum {
+ struct InFlightRequest {
+     // Set by notify() SHUTTER call.
+     nsecs_t shutterTimestamp;
++    // Set by notify() SHUTTER call with readout time.
++    nsecs_t shutterReadoutTimestamp;
+     // Set by process_capture_result().
+     nsecs_t sensorTimestamp;
+     int     requestStatus;
+diff --git a/services/camera/libcameraservice/device3/PreviewFrameSpacer.cpp b/services/camera/libcameraservice/device3/PreviewFrameSpacer.cpp
+index 0439501733..9112b939da 100644
+--- a/services/camera/libcameraservice/device3/PreviewFrameSpacer.cpp
++++ b/services/camera/libcameraservice/device3/PreviewFrameSpacer.cpp
+@@ -27,20 +27,21 @@ namespace android {
+ 
+ namespace camera3 {
+ 
+-PreviewFrameSpacer::PreviewFrameSpacer(wp<Camera3OutputStream> parent, sp<Surface> consumer) :
++PreviewFrameSpacer::PreviewFrameSpacer(Camera3OutputStream& parent, sp<Surface> consumer) :
+         mParent(parent),
+         mConsumer(consumer) {
+ }
+ 
+ PreviewFrameSpacer::~PreviewFrameSpacer() {
++    Thread::requestExitAndWait();
+ }
+ 
+-status_t PreviewFrameSpacer::queuePreviewBuffer(nsecs_t timestamp, nsecs_t readoutTimestamp,
+-        int32_t transform, ANativeWindowBuffer* anwBuffer, int releaseFence) {
++status_t PreviewFrameSpacer::queuePreviewBuffer(nsecs_t timestamp, int32_t transform,
++        ANativeWindowBuffer* anwBuffer, int releaseFence) {
+     Mutex::Autolock l(mLock);
+-    mPendingBuffers.emplace(timestamp, readoutTimestamp, transform, anwBuffer, releaseFence);
+-    ALOGV("%s: mPendingBuffers size %zu, timestamp %" PRId64 ", readoutTime %" PRId64,
+-            __FUNCTION__, mPendingBuffers.size(), timestamp, readoutTimestamp);
++    mPendingBuffers.emplace(timestamp, transform, anwBuffer, releaseFence);
++    ALOGV("%s: mPendingBuffers size %zu, timestamp %" PRId64, __FUNCTION__,
++            mPendingBuffers.size(), timestamp);
+ 
+     mBufferCond.signal();
+     return OK;
+@@ -50,36 +51,32 @@ bool PreviewFrameSpacer::threadLoop() {
+     Mutex::Autolock l(mLock);
+     if (mPendingBuffers.size() == 0) {
+         mBufferCond.waitRelative(mLock, kWaitDuration);
+-        if (exitPending()) {
+-            return false;
+-        } else {
+-            return true;
+-        }
++        return true;
+     }
+ 
+     nsecs_t currentTime = systemTime();
+     auto buffer = mPendingBuffers.front();
+-    nsecs_t readoutInterval = buffer.readoutTimestamp - mLastCameraReadoutTime;
+-    // If the readout interval exceeds threshold, directly queue
++    nsecs_t captureInterval = buffer.timestamp - mLastCameraCaptureTime;
++    // If the capture interval exceeds threshold, directly queue
+     // cached buffer.
+-    if (readoutInterval >= kFrameIntervalThreshold) {
++    if (captureInterval >= kFrameIntervalThreshold) {
+         mPendingBuffers.pop();
+         queueBufferToClientLocked(buffer, currentTime);
+         return true;
+     }
+ 
+-    // Cache the frame to match readout time interval, for up to 33ms
+-    nsecs_t expectedQueueTime = mLastCameraPresentTime + readoutInterval;
++    // Cache the frame to match capture time interval, for up to 33ms
++    nsecs_t expectedQueueTime = mLastCameraPresentTime + captureInterval;
+     nsecs_t frameWaitTime = std::min(kMaxFrameWaitTime, expectedQueueTime - currentTime);
+     if (frameWaitTime > 0 && mPendingBuffers.size() < 2) {
+         mBufferCond.waitRelative(mLock, frameWaitTime);
+         if (exitPending()) {
+-            return false;
++            return true;
+         }
+         currentTime = systemTime();
+     }
+-    ALOGV("%s: readoutInterval %" PRId64 ", queueInterval %" PRId64 ", waited for %" PRId64
+-            ", timestamp %" PRId64, __FUNCTION__, readoutInterval,
++    ALOGV("%s: captureInterval %" PRId64 ", queueInterval %" PRId64 ", waited for %" PRId64
++            ", timestamp %" PRId64, __FUNCTION__, captureInterval,
+             currentTime - mLastCameraPresentTime, frameWaitTime, buffer.timestamp);
+     mPendingBuffers.pop();
+     queueBufferToClientLocked(buffer, currentTime);
+@@ -95,13 +92,7 @@ void PreviewFrameSpacer::requestExit() {
+ 
+ void PreviewFrameSpacer::queueBufferToClientLocked(
+         const BufferHolder& bufferHolder, nsecs_t currentTime) {
+-    sp<Camera3OutputStream> parent = mParent.promote();
+-    if (parent == nullptr) {
+-        ALOGV("%s: Parent camera3 output stream was destroyed", __FUNCTION__);
+-        return;
+-    }
+-
+-    parent->setTransform(bufferHolder.transform, true/*mayChangeMirror*/);
++    mParent.setTransform(bufferHolder.transform, true/*mayChangeMirror*/);
+ 
+     status_t res = native_window_set_buffers_timestamp(mConsumer.get(), bufferHolder.timestamp);
+     if (res != OK) {
+@@ -110,20 +101,20 @@ void PreviewFrameSpacer::queueBufferToClientLocked(
+     }
+ 
+     Camera3Stream::queueHDRMetadata(bufferHolder.anwBuffer.get()->handle, mConsumer,
+-            parent->getDynamicRangeProfile());
++            mParent.getDynamicRangeProfile());
+ 
+     res = mConsumer->queueBuffer(mConsumer.get(), bufferHolder.anwBuffer.get(),
+             bufferHolder.releaseFence);
+     if (res != OK) {
+         close(bufferHolder.releaseFence);
+-        if (parent->shouldLogError(res)) {
++        if (mParent.shouldLogError(res)) {
+             ALOGE("%s: Failed to queue buffer to client: %s(%d)", __FUNCTION__,
+                     strerror(-res), res);
+         }
+     }
+ 
+     mLastCameraPresentTime = currentTime;
+-    mLastCameraReadoutTime = bufferHolder.readoutTimestamp;
++    mLastCameraCaptureTime = bufferHolder.timestamp;
+ }
+ 
+ }; // namespace camera3
+diff --git a/services/camera/libcameraservice/device3/PreviewFrameSpacer.h b/services/camera/libcameraservice/device3/PreviewFrameSpacer.h
+index e165768b97..50625533e4 100644
+--- a/services/camera/libcameraservice/device3/PreviewFrameSpacer.h
++++ b/services/camera/libcameraservice/device3/PreviewFrameSpacer.h
+@@ -42,19 +42,19 @@ class Camera3OutputStream;
+  *
+  * The PreviewFrameSpacer improves the viewfinder user experience by:
+  * - Cache the frame buffers if the intervals between queueBuffer is shorter
+- *   than the camera readout intervals.
+- * - Queue frame buffers in the same cadence as the camera readout time.
++ *   than the camera capture intervals.
++ * - Queue frame buffers in the same cadence as the camera capture time.
+  * - Maintain at most 1 queue-able buffer. If the 2nd preview buffer becomes
+  *   available, queue the oldest cached buffer to the buffer queue.
+  */
+ class PreviewFrameSpacer : public Thread {
+   public:
+-    explicit PreviewFrameSpacer(wp<Camera3OutputStream> parent, sp<Surface> consumer);
++    explicit PreviewFrameSpacer(Camera3OutputStream& parent, sp<Surface> consumer);
+     virtual ~PreviewFrameSpacer();
+ 
+     // Queue preview buffer locally
+-    status_t queuePreviewBuffer(nsecs_t timestamp, nsecs_t readoutTimestamp,
+-            int32_t transform, ANativeWindowBuffer* anwBuffer, int releaseFence);
++    status_t queuePreviewBuffer(nsecs_t timestamp, int32_t transform,
++            ANativeWindowBuffer* anwBuffer, int releaseFence);
+ 
+     bool threadLoop() override;
+     void requestExit() override;
+@@ -63,25 +63,24 @@ class PreviewFrameSpacer : public Thread {
+     // structure holding cached preview buffer info
+     struct BufferHolder {
+         nsecs_t timestamp;
+-        nsecs_t readoutTimestamp;
+         int32_t transform;
+         sp<ANativeWindowBuffer> anwBuffer;
+         int releaseFence;
+ 
+-        BufferHolder(nsecs_t t, nsecs_t readoutT, int32_t tr, ANativeWindowBuffer* anwb, int rf) :
+-                timestamp(t), readoutTimestamp(readoutT), transform(tr), anwBuffer(anwb),
+-                releaseFence(rf) {}
++        BufferHolder(nsecs_t t, int32_t tr, ANativeWindowBuffer* anwb, int rf) :
++                timestamp(t), transform(tr), anwBuffer(anwb), releaseFence(rf) {}
+     };
+ 
+     void queueBufferToClientLocked(const BufferHolder& bufferHolder, nsecs_t currentTime);
+ 
+-    wp<Camera3OutputStream> mParent;
++
++    Camera3OutputStream& mParent;
+     sp<ANativeWindow> mConsumer;
+     mutable Mutex mLock;
+     Condition mBufferCond;
+ 
+     std::queue<BufferHolder> mPendingBuffers;
+-    nsecs_t mLastCameraReadoutTime = 0;
++    nsecs_t mLastCameraCaptureTime = 0;
+     nsecs_t mLastCameraPresentTime = 0;
+     static constexpr nsecs_t kWaitDuration = 5000000LL; // 50ms
+     static constexpr nsecs_t kFrameIntervalThreshold = 80000000LL; // 80ms
+diff --git a/services/camera/libcameraservice/device3/aidl/AidlCamera3OutputUtils.cpp b/services/camera/libcameraservice/device3/aidl/AidlCamera3OutputUtils.cpp
+index b2accc1c99..02eebd24f3 100644
+--- a/services/camera/libcameraservice/device3/aidl/AidlCamera3OutputUtils.cpp
++++ b/services/camera/libcameraservice/device3/aidl/AidlCamera3OutputUtils.cpp
+@@ -110,7 +110,6 @@ void notify(CaptureOutputStates& states,
+             m.type = CAMERA_MSG_SHUTTER;
+             m.message.shutter.frame_number = msg.get<Tag::shutter>().frameNumber;
+             m.message.shutter.timestamp = msg.get<Tag::shutter>().timestamp;
+-            m.message.shutter.readout_timestamp_valid = true;
+             m.message.shutter.readout_timestamp = msg.get<Tag::shutter>().readoutTimestamp;
+             break;
+     }
+diff --git a/services/camera/libcameraservice/device3/hidl/HidlCamera3OutputUtils.cpp b/services/camera/libcameraservice/device3/hidl/HidlCamera3OutputUtils.cpp
+index ff6fc170d3..8b0cd65e62 100644
+--- a/services/camera/libcameraservice/device3/hidl/HidlCamera3OutputUtils.cpp
++++ b/services/camera/libcameraservice/device3/hidl/HidlCamera3OutputUtils.cpp
+@@ -105,7 +105,6 @@ void notify(CaptureOutputStates& states,
+             m.type = CAMERA_MSG_SHUTTER;
+             m.message.shutter.frame_number = msg.msg.shutter.frameNumber;
+             m.message.shutter.timestamp = msg.msg.shutter.timestamp;
+-            m.message.shutter.readout_timestamp_valid = false;
+             m.message.shutter.readout_timestamp = 0LL;
+             break;
+     }
+diff --git a/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp b/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp
+index 3071a89a5f..6064088623 100644
+--- a/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp
++++ b/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp
+@@ -490,7 +490,7 @@ binder::Status createSurfaceFromGbp(
+         return STATUS_ERROR(CameraService::ERROR_ILLEGAL_ARGUMENT, msg.string());
+     }
+     if (timestampBase < OutputConfiguration::TIMESTAMP_BASE_DEFAULT ||
+-            timestampBase > OutputConfiguration::TIMESTAMP_BASE_MAX) {
++            timestampBase > OutputConfiguration::TIMESTAMP_BASE_CHOREOGRAPHER_SYNCED) {
+         String8 msg = String8::format("Camera %s: invalid timestamp base %d",
+                 logicalCameraId.string(), timestampBase);
+         ALOGE("%s: %s", __FUNCTION__, msg.string());
+@@ -651,10 +651,6 @@ convertToHALStreamCombination(
+         stream.bufferSize = 0;
+         stream.groupId = -1;
+         stream.sensorPixelModesUsed = defaultSensorPixelModes;
+-        using DynamicRangeProfile =
+-            aidl::android::hardware::camera::metadata::RequestAvailableDynamicRangeProfilesMap;
+-        stream.dynamicRangeProfile =
+-            DynamicRangeProfile::ANDROID_REQUEST_AVAILABLE_DYNAMIC_RANGE_PROFILES_MAP_STANDARD;
+         streamConfiguration.streams[streamIdx++] = stream;
+         streamConfiguration.multiResolutionInputImage =
+                 sessionConfiguration.inputIsMultiResolution();
+diff --git a/services/camera/libcameraservice/utils/SessionConfigurationUtilsHidl.cpp b/services/camera/libcameraservice/utils/SessionConfigurationUtilsHidl.cpp
+index 5444f2a36a..4e6f832560 100644
+--- a/services/camera/libcameraservice/utils/SessionConfigurationUtilsHidl.cpp
++++ b/services/camera/libcameraservice/utils/SessionConfigurationUtilsHidl.cpp
+@@ -50,7 +50,7 @@ convertAidlToHidl37StreamCombination(
+     for (const auto &stream : aidl.streams) {
+         if (static_cast<int>(stream.dynamicRangeProfile) !=
+                 ANDROID_REQUEST_AVAILABLE_DYNAMIC_RANGE_PROFILES_MAP_STANDARD) {
+-            ALOGE("%s Dynamic range profile %" PRId64 " not supported by HIDL", __FUNCTION__,
++            ALOGE("%s  Dynamic range profile %" PRId64 " not supported by HIDL", __FUNCTION__,
+                     stream.dynamicRangeProfile);
+             return BAD_VALUE;
+         }
+-- 
+2.38.1.windows.1
+

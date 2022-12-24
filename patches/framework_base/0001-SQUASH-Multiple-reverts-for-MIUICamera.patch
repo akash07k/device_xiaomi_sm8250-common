@@ -1,0 +1,201 @@
+From 9d1c14cc5ef424b9b6dee8935a16640bed64b0db Mon Sep 17 00:00:00 2001
+From: spkal01 <kalligeross@gmail.com>
+Date: Mon, 24 Oct 2022 15:13:59 +0300
+Subject: [PATCH] [SQUASH] Multiple reverts for MIUICamera
+
+Signed-off-by: Akash Kakkar <akash.galaxy07@gmail.com>
+---
+ core/java/android/hardware/Camera.java        | 50 +------------------
+ .../hardware/camera2/CameraManager.java       | 30 +----------
+ core/jni/android_hardware_Camera.cpp          |  2 +-
+ 3 files changed, 4 insertions(+), 78 deletions(-)
+
+diff --git a/core/java/android/hardware/Camera.java b/core/java/android/hardware/Camera.java
+index 2595aeb313df..f04479deeef3 100644
+--- a/core/java/android/hardware/Camera.java
++++ b/core/java/android/hardware/Camera.java
+@@ -46,7 +46,6 @@ import android.os.Message;
+ import android.os.Process;
+ import android.os.RemoteException;
+ import android.os.ServiceManager;
+-import android.os.SystemProperties;
+ import android.renderscript.Allocation;
+ import android.renderscript.Element;
+ import android.renderscript.RSIllegalArgumentException;
+@@ -64,7 +63,6 @@ import com.android.internal.app.IAppOpsService;
+ import java.io.IOException;
+ import java.lang.ref.WeakReference;
+ import java.util.ArrayList;
+-import java.util.Arrays;
+ import java.util.LinkedHashMap;
+ import java.util.List;
+ 
+@@ -282,33 +280,6 @@ public class Camera {
+      */
+     private static final int CAMERA_FACE_DETECTION_SW = 1;
+ 
+-    /**
+-     * @hide
+-     */
+-    public static boolean shouldExposeAuxCamera() {
+-        /**
+-         * Force to expose only two cameras
+-         * if the package name does not falls in this bucket
+-         */
+-        String packageName = ActivityThread.currentOpPackageName();
+-    	if (packageName == null)
+-    	    return true;
+-        List<String> packageList = new ArrayList<>(Arrays.asList(
+-                SystemProperties.get("vendor.camera.aux.packagelist", ",").split(",")));
+-        List<String> packageExcludelist = new ArrayList<>(Arrays.asList(
+-                SystemProperties.get("vendor.camera.aux.packageexcludelist", ",").split(",")));
+-
+-        // Append packages from lineage-sdk resources
+-        Resources res = ActivityThread.currentApplication().getResources();
+-        packageList.addAll(Arrays.asList(res.getStringArray(
+-                org.lineageos.platform.internal.R.array.config_cameraAuxPackageAllowList)));
+-        packageExcludelist.addAll(Arrays.asList(res.getStringArray(
+-                org.lineageos.platform.internal.R.array.config_cameraAuxPackageExcludeList)));
+-
+-        return (packageList.isEmpty() || packageList.contains(packageName)) &&
+-                !packageExcludelist.contains(packageName);
+-    }
+-
+     /**
+      * Returns the number of physical cameras available on this device.
+      * The return value of this method might change dynamically if the device
+@@ -324,20 +295,7 @@ public class Camera {
+      * @return total number of accessible camera devices, or 0 if there are no
+      *   cameras or an error was encountered enumerating them.
+      */
+-    public static int getNumberOfCameras() {
+-        int numberOfCameras = _getNumberOfCameras();
+-        if (!shouldExposeAuxCamera() && numberOfCameras > 2) {
+-            numberOfCameras = 2;
+-        }
+-        return numberOfCameras;
+-    }
+-
+-    /**
+-     * Returns the number of physical cameras available on this device.
+-     *
+-     * @hide
+-     */
+-    public native static int _getNumberOfCameras();
++    public native static int getNumberOfCameras();
+ 
+     /**
+      * Returns the information about a particular camera.
+@@ -348,9 +306,6 @@ public class Camera {
+      *    low-level failure).
+      */
+     public static void getCameraInfo(int cameraId, CameraInfo cameraInfo) {
+-        if (cameraId >= getNumberOfCameras()) {
+-            throw new RuntimeException("Unknown camera ID");
+-        }
+         _getCameraInfo(cameraId, cameraInfo);
+         IBinder b = ServiceManager.getService(Context.AUDIO_SERVICE);
+         IAudioService audioService = IAudioService.Stub.asInterface(b);
+@@ -566,9 +521,6 @@ public class Camera {
+ 
+     /** used by Camera#open, Camera#open(int) */
+     Camera(int cameraId) {
+-        if (cameraId >= getNumberOfCameras()) {
+-            throw new RuntimeException("Unknown camera ID");
+-        }
+         int err = cameraInit(cameraId);
+         if (checkInitErrors(err)) {
+             if (err == -EACCES) {
+diff --git a/core/java/android/hardware/camera2/CameraManager.java b/core/java/android/hardware/camera2/CameraManager.java
+index 9458960d13de..f8170731b2e5 100644
+--- a/core/java/android/hardware/camera2/CameraManager.java
++++ b/core/java/android/hardware/camera2/CameraManager.java
+@@ -27,7 +27,6 @@ import android.app.ActivityThread;
+ import android.content.Context;
+ import android.content.pm.PackageManager;
+ import android.graphics.Point;
+-import android.hardware.Camera;
+ import android.hardware.CameraStatus;
+ import android.hardware.ICameraService;
+ import android.hardware.ICameraServiceListener;
+@@ -1678,10 +1677,8 @@ public final class CameraManager {
+ 
+         private String[] extractCameraIdListLocked() {
+             String[] cameraIds = null;
+-            boolean exposeAuxCamera = Camera.shouldExposeAuxCamera();
+-            int size = exposeAuxCamera ? mDeviceStatus.size() : 2;
+             int idCount = 0;
+-            for (int i = 0; i < size; i++) {
++            for (int i = 0; i < mDeviceStatus.size(); i++) {
+                 int status = mDeviceStatus.valueAt(i);
+                 if (status == ICameraServiceListener.STATUS_NOT_PRESENT
+                         || status == ICameraServiceListener.STATUS_ENUMERATING) continue;
+@@ -1689,7 +1686,7 @@ public final class CameraManager {
+             }
+             cameraIds = new String[idCount];
+             idCount = 0;
+-            for (int i = 0; i < size; i++) {
++            for (int i = 0; i < mDeviceStatus.size(); i++) {
+                 int status = mDeviceStatus.valueAt(i);
+                 if (status == ICameraServiceListener.STATUS_NOT_PRESENT
+                         || status == ICameraServiceListener.STATUS_ENUMERATING) continue;
+@@ -1954,14 +1951,6 @@ public final class CameraManager {
+                     throw new IllegalArgumentException("cameraId was null");
+                 }
+ 
+-                /* Force to expose only two cameras
+-                 * if the package name does not falls in this bucket
+-                 */
+-                boolean exposeAuxCamera = Camera.shouldExposeAuxCamera();
+-                if (exposeAuxCamera == false && (Integer.parseInt(cameraId) >= 2)) {
+-                    throw new IllegalArgumentException("invalid cameraId");
+-                }
+-
+                 ICameraService cameraService = getCameraService();
+                 if (cameraService == null) {
+                     throw new CameraAccessException(CameraAccessException.CAMERA_DISCONNECTED,
+@@ -2229,11 +2218,6 @@ public final class CameraManager {
+         }
+ 
+         private void onStatusChangedLocked(int status, String id) {
+-            if (!Camera.shouldExposeAuxCamera() && Integer.parseInt(id) >= 2) {
+-                Log.w(TAG, "[soar.cts] ignore the status update of camera: " + id);
+-                return;
+-            }
+-
+             if (DEBUG) {
+                 Log.v(TAG,
+                         String.format("Camera id %s has status changed to 0x%x", id, status));
+@@ -2365,16 +2349,6 @@ public final class CameraManager {
+                         String.format("Camera id %s has torch status changed to 0x%x", id, status));
+             }
+ 
+-            /* Force to ignore the aux or composite camera torch status update
+-             * if the package name does not falls in this bucket
+-             */
+-            boolean exposeAuxCamera = Camera.shouldExposeAuxCamera();
+-            if (exposeAuxCamera == false && Integer.parseInt(id) >= 2) {
+-                Log.w(TAG, "ignore the torch status update of camera: " + id);
+-                return;
+-            }
+-
+-
+             if (!validTorchStatus(status)) {
+                 Log.e(TAG, String.format("Ignoring invalid device %s torch status 0x%x", id,
+                                 status));
+diff --git a/core/jni/android_hardware_Camera.cpp b/core/jni/android_hardware_Camera.cpp
+index 3325f62bba01..ca02cd74372a 100644
+--- a/core/jni/android_hardware_Camera.cpp
++++ b/core/jni/android_hardware_Camera.cpp
+@@ -1166,7 +1166,7 @@ static void android_hardware_Camera_sendVendorCommand(JNIEnv *env, jobject thiz,
+ //-------------------------------------------------
+ 
+ static const JNINativeMethod camMethods[] = {
+-  { "_getNumberOfCameras",
++  { "getNumberOfCameras",
+     "()I",
+     (void *)android_hardware_Camera_getNumberOfCameras },
+   { "_getCameraInfo",
+-- 
+2.38.1.windows.1
+

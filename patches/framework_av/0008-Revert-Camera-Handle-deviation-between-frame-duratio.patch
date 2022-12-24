@@ -1,0 +1,79 @@
+From cc47b08f69d2f691268ae22cf3725205ba816162 Mon Sep 17 00:00:00 2001
+From: vjspranav <pranavasri@live.in>
+Date: Thu, 8 Dec 2022 13:07:37 +0000
+Subject: [PATCH 08/10] Revert "Camera: Handle deviation between frame duration
+ and vsync intervals"
+
+This reverts commit 34a5e28cbcf0d9ba486d84ca00580976baa97b75.
+
+Signed-off-by: Akash Kakkar <akash.galaxy07@gmail.com>
+---
+ .../device3/Camera3OutputStream.cpp           | 31 +++++--------------
+ .../device3/Camera3OutputStream.h             |  1 -
+ 2 files changed, 7 insertions(+), 25 deletions(-)
+
+diff --git a/services/camera/libcameraservice/device3/Camera3OutputStream.cpp b/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
+index 7d0230469e..6d99707cd8 100644
+--- a/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
++++ b/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
+@@ -18,7 +18,6 @@
+ #define ATRACE_TAG ATRACE_TAG_CAMERA
+ //#define LOG_NDEBUG 0
+ 
+-#include <algorithm>
+ #include <ctime>
+ #include <fstream>
+ 
+@@ -1399,30 +1398,14 @@ nsecs_t Camera3OutputStream::syncTimestampToDisplayLocked(nsecs_t t) {
+     const VsyncEventData& vsyncEventData = parcelableVsyncEventData.vsync;
+     nsecs_t currentTime = systemTime();
+ 
+-    // Reset capture to present time offset if:
+-    // - More than 1 second between frames.
+-    // - The frame duration deviates from multiples of vsync frame intervals.
+-    nsecs_t captureInterval = t - mLastCaptureTime;
+-    float captureToVsyncIntervalRatio = 1.0f * captureInterval / vsyncEventData.frameInterval;
+-    float ratioDeviation = std::fabs(
+-            captureToVsyncIntervalRatio - std::roundf(captureToVsyncIntervalRatio));
+-    if (captureInterval > kSpacingResetIntervalNs ||
+-            ratioDeviation >= kMaxIntervalRatioDeviation) {
+-        nsecs_t minPresentT = mLastPresentTime + vsyncEventData.frameInterval / 2;
++    // Reset capture to present time offset if more than 1 second
++    // between frames.
++    if (t - mLastCaptureTime > kSpacingResetIntervalNs) {
+         for (size_t i = 0; i < VsyncEventData::kFrameTimelinesLength; i++) {
+-            const auto& timeline = vsyncEventData.frameTimelines[i];
+-            if (timeline.deadlineTimestamp >= currentTime &&
+-                    timeline.expectedPresentationTime > minPresentT) {
+-                nsecs_t presentT = vsyncEventData.frameTimelines[i].expectedPresentationTime;
+-                mCaptureToPresentOffset = presentT - t;
+-                mLastCaptureTime = t;
+-                mLastPresentTime = presentT;
+-
+-                // Move the expected presentation time back by 1/3 of frame interval to
+-                // mitigate the time drift. Due to time drift, if we directly use the
+-                // expected presentation time, often times 2 expected presentation time
+-                // falls into the same VSYNC interval.
+-                return presentT - vsyncEventData.frameInterval/3;
++            if (vsyncEventData.frameTimelines[i].deadlineTimestamp >= currentTime) {
++                mCaptureToPresentOffset =
++                    vsyncEventData.frameTimelines[i].expectedPresentationTime - t;
++                break;
+             }
+         }
+     }
+diff --git a/services/camera/libcameraservice/device3/Camera3OutputStream.h b/services/camera/libcameraservice/device3/Camera3OutputStream.h
+index 826f7ce468..4ab052b52d 100644
+--- a/services/camera/libcameraservice/device3/Camera3OutputStream.h
++++ b/services/camera/libcameraservice/device3/Camera3OutputStream.h
+@@ -428,7 +428,6 @@ class Camera3OutputStream :
+     static constexpr size_t kDisplaySyncExtraBuffer = 2;
+     static constexpr nsecs_t kSpacingResetIntervalNs = 1000000000LL; // 1 second
+     static constexpr nsecs_t kTimelineThresholdNs = 1000000LL; // 1 millisecond
+-    static constexpr float kMaxIntervalRatioDeviation = 0.05f;
+     nsecs_t syncTimestampToDisplayLocked(nsecs_t t);
+ 
+     // Re-space frames by delaying queueBuffer so that frame delivery has
+-- 
+2.38.1.windows.1
+

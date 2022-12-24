@@ -1,0 +1,69 @@
+From b4cbf9be2c1c340e07c3a1d008bcef0892e15e5c Mon Sep 17 00:00:00 2001
+From: vjspranav <pranavasri@live.in>
+Date: Thu, 8 Dec 2022 13:07:30 +0000
+Subject: [PATCH 07/10] Revert "Camera: reset presentation timestamp more
+ aggressively"
+
+This reverts commit ed08fbe1381f2de16c6ef4247436610443c5a2ed.
+
+Signed-off-by: Akash Kakkar <akash.galaxy07@gmail.com>
+---
+ .../device3/Camera3OutputStream.cpp           | 19 ++++---------------
+ .../device3/Camera3OutputStream.h             |  3 +--
+ 2 files changed, 5 insertions(+), 17 deletions(-)
+
+diff --git a/services/camera/libcameraservice/device3/Camera3OutputStream.cpp b/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
+index 8371a6e712..7d0230469e 100644
+--- a/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
++++ b/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
+@@ -1438,27 +1438,16 @@ nsecs_t Camera3OutputStream::syncTimestampToDisplayLocked(nsecs_t t) {
+     int minVsyncs = (mMinExpectedDuration - vsyncEventData.frameInterval / 2) /
+             vsyncEventData.frameInterval;
+     if (minVsyncs < 0) minVsyncs = 0;
+-    nsecs_t minInterval = minVsyncs * vsyncEventData.frameInterval;
+-    // Find best timestamp in the vsync timelines:
+-    // - Only use at most 3 timelines to avoid long latency
++    nsecs_t minInterval = minVsyncs * vsyncEventData.frameInterval + kTimelineThresholdNs;
++    // Find best timestamp in the vsync timeline:
+     // - closest to the ideal present time,
+     // - deadline timestamp is greater than the current time, and
+     // - the candidate present time is at least minInterval in the future
+     //   compared to last present time.
+-    int maxTimelines = std::min(kMaxTimelines, (int)VsyncEventData::kFrameTimelinesLength);
+-    float biasForShortDelay = 1.0f;
+-    for (int i = 0; i < maxTimelines; i ++) {
+-        const auto& vsyncTime = vsyncEventData.frameTimelines[i];
+-        if (minVsyncs > 0) {
+-            // Bias towards using smaller timeline index:
+-            //   i = 0:                bias = 1
+-            //   i = maxTimelines-1:   bias = -1
+-            biasForShortDelay = 1.0 - 2.0 * i / (maxTimelines - 1);
+-        }
++    for (const auto& vsyncTime : vsyncEventData.frameTimelines) {
+         if (std::abs(vsyncTime.expectedPresentationTime - idealPresentT) < minDiff &&
+                 vsyncTime.deadlineTimestamp >= currentTime &&
+-                vsyncTime.expectedPresentationTime >
+-                mLastPresentTime + minInterval + biasForShortDelay * kTimelineThresholdNs) {
++                vsyncTime.expectedPresentationTime > mLastPresentTime + minInterval) {
+             expectedPresentT = vsyncTime.expectedPresentationTime;
+             minDiff = std::abs(vsyncTime.expectedPresentationTime - idealPresentT);
+         }
+diff --git a/services/camera/libcameraservice/device3/Camera3OutputStream.h b/services/camera/libcameraservice/device3/Camera3OutputStream.h
+index 3587af4349..826f7ce468 100644
+--- a/services/camera/libcameraservice/device3/Camera3OutputStream.h
++++ b/services/camera/libcameraservice/device3/Camera3OutputStream.h
+@@ -426,10 +426,9 @@ class Camera3OutputStream :
+     nsecs_t mLastPresentTime = 0;
+     nsecs_t mCaptureToPresentOffset = 0;
+     static constexpr size_t kDisplaySyncExtraBuffer = 2;
+-    static constexpr nsecs_t kSpacingResetIntervalNs = 50000000LL; // 50 millisecond
++    static constexpr nsecs_t kSpacingResetIntervalNs = 1000000000LL; // 1 second
+     static constexpr nsecs_t kTimelineThresholdNs = 1000000LL; // 1 millisecond
+     static constexpr float kMaxIntervalRatioDeviation = 0.05f;
+-    static constexpr int kMaxTimelines = 3;
+     nsecs_t syncTimestampToDisplayLocked(nsecs_t t);
+ 
+     // Re-space frames by delaying queueBuffer so that frame delivery has
+-- 
+2.38.1.windows.1
+

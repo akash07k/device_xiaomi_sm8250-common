@@ -1,0 +1,77 @@
+From 614bd9e8604ceb65965fafa23429652c9974eb56 Mon Sep 17 00:00:00 2001
+From: vjspranav <pranavasri@live.in>
+Date: Thu, 8 Dec 2022 14:26:13 +0000
+Subject: [PATCH 09/10] Revert "CameraService: Updated watchdog disconnect
+ timer"
+
+This reverts commit 6dbbb0bff1d0f29e65ed3e547279770f5cc59b1b.
+
+Signed-off-by: Akash Kakkar <akash.galaxy07@gmail.com>
+---
+ .../libcameraservice/common/Camera2ClientBase.cpp    | 12 ++++--------
+ .../libcameraservice/common/Camera2ClientBase.h      |  3 ---
+ .../libcameraservice/device3/Camera3Device.cpp       |  2 +-
+ 3 files changed, 5 insertions(+), 12 deletions(-)
+
+diff --git a/services/camera/libcameraservice/common/Camera2ClientBase.cpp b/services/camera/libcameraservice/common/Camera2ClientBase.cpp
+index c8edcc7bb8..9a5e9a94d2 100644
+--- a/services/camera/libcameraservice/common/Camera2ClientBase.cpp
++++ b/services/camera/libcameraservice/common/Camera2ClientBase.cpp
+@@ -41,6 +41,8 @@
+ 
+ namespace android {
+ 
++const static size_t kDisconnectTimeoutMs = 2500;
++
+ using namespace camera2;
+ 
+ // Interface used by CameraService
+@@ -250,16 +252,10 @@ status_t Camera2ClientBase<TClientBase>::dumpDevice(
+ 
+ template <typename TClientBase>
+ binder::Status Camera2ClientBase<TClientBase>::disconnect() {
+-    if (mCameraServiceWatchdog != nullptr && mDevice != nullptr) {
+-        // Timer for the disconnect call should be greater than getExpectedInFlightDuration
+-        // since this duration is used to error handle methods in the disconnect sequence
+-        // thus allowing existing error handling methods to execute first
+-        uint64_t maxExpectedDuration =
+-                ns2ms(mDevice->getExpectedInFlightDuration() + kBufferTimeDisconnectNs);
+-
++    if (mCameraServiceWatchdog != nullptr) {
+         // Initialization from hal succeeded, time disconnect.
+         return mCameraServiceWatchdog->WATCH_CUSTOM_TIMER(disconnectImpl(),
+-                maxExpectedDuration / kCycleLengthMs, kCycleLengthMs);
++                kDisconnectTimeoutMs / kCycleLengthMs, kCycleLengthMs);
+     }
+     return disconnectImpl();
+ }
+diff --git a/services/camera/libcameraservice/common/Camera2ClientBase.h b/services/camera/libcameraservice/common/Camera2ClientBase.h
+index e51d25d672..3af781b45d 100644
+--- a/services/camera/libcameraservice/common/Camera2ClientBase.h
++++ b/services/camera/libcameraservice/common/Camera2ClientBase.h
+@@ -132,9 +132,6 @@ public:
+ 
+ protected:
+ 
+-    // Used for watchdog timeout to monitor disconnect
+-    static const nsecs_t kBufferTimeDisconnectNs = 3000000000; // 3 sec.
+-
+     // The PID provided in the constructor call
+     pid_t mInitialClientPid;
+     bool mOverrideForPerfClass = false;
+diff --git a/services/camera/libcameraservice/device3/Camera3Device.cpp b/services/camera/libcameraservice/device3/Camera3Device.cpp
+index 67f2a32ac7..abaac18183 100644
+--- a/services/camera/libcameraservice/device3/Camera3Device.cpp
++++ b/services/camera/libcameraservice/device3/Camera3Device.cpp
+@@ -1742,7 +1742,7 @@ status_t Camera3Device::flush(int64_t *frameNumber) {
+     }
+ 
+     // Calculate expected duration for flush with additional buffer time in ms for watchdog
+-    uint64_t maxExpectedDuration = ns2ms(getExpectedInFlightDuration() + kBaseGetBufferWait);
++    uint64_t maxExpectedDuration = (getExpectedInFlightDuration() + kBaseGetBufferWait) / 1e6;
+     status_t res = mCameraServiceWatchdog->WATCH_CUSTOM_TIMER(mRequestThread->flush(),
+             maxExpectedDuration / kCycleLengthMs, kCycleLengthMs);
+ 
+-- 
+2.38.1.windows.1
+
