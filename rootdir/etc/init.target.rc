@@ -427,3 +427,5 @@ on property:sys.boot_completed=1
     # Disable statsd service to prevent additional battery drain
     stop statsd
 
+    # Enable suspend to RAM
+    write /sys/power/mem_sleep "deep"
