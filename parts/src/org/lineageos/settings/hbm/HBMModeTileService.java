@@ -34,7 +34,7 @@ import org.lineageos.settings.display.*;
 
 public class HBMModeTileService extends TileService {
 
-    private static final String HBM = "/sys/devices/platform/soc/soc:qcom,dsi-display-primary/hbm";
+    private static final String HBM = "/sys/class/drm/card0/card0-DSI-1/disp_param";
     private static final String HBM_KEY = "hbm";
     private static final String BACKLIGHT = "/sys/class/backlight/panel0-backlight/brightness";
 
